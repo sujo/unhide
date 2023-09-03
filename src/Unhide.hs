@@ -5,7 +5,7 @@ module Unhide
 import Relude
 import Control.Monad (forM_)
 import qualified Data.HashMap.Strict as HM
-import Data.Text (unpack)
+import Data.Text (pack, unpack)
 import System.Directory (findExecutable)
 import System.Environment (getExecutablePath, getProgName)
 import UnliftIO (catch)
@@ -30,12 +30,10 @@ encrypt dir targetFile maybeUserId = do
    pure x
 
 
--- | decrypts the file, and creates the directory with contents.
--- Fails if the directory already exists.
+-- | decrypts the file
 -- Does not remove the encrypted file.
 decrypt :: FilePath -> FilePath -> IO ExitCode
 decrypt file dir = do
-   mkdir dir
    shell (format ("gpg --decrypt '"%fp%"' | tar -xC '"%fp%"'") file dir) empty
 
 
@@ -59,7 +57,9 @@ hideDirectory maybeUserId storageBaseDir dir = do
       hide absDirectory storageDir targetFile = do
          encrypt absDirectory targetFile maybeUserId .||.
             Turtle.die "encrypt failed"
-         decrypt targetFile storageDir .||.
+         mkdir storageDir
+         decrypt targetFile storageDir .||. do
+            rmtree storageDir
             Turtle.die "safety check: decrypt failed"
          -- sanity check that the decrypted content is the same
          sameDirectoryContents absDirectory storageDir .||.
@@ -69,11 +69,17 @@ hideDirectory maybeUserId storageBaseDir dir = do
          rmtree storageDir
 
 
+linkCommandPath :: Command -> IO FilePath
+linkCommandPath command = do
+   binDir <- getBinDir
+   pure $ binDir </> unpack command
+
+
 linkCommand :: Command -> IO ()
 linkCommand command = do
-   binDir <- getBinDir
    unhideExePath <- getExecutablePath
-   catch (symlink unhideExePath $ binDir </> unpack command) $ \(_ :: SomeException) -> pure ()
+   linkTarget <- linkCommandPath command
+   catch (symlink unhideExePath linkTarget) $ \(_ :: SomeException) -> pure ()
 
 
 run :: IO ()
@@ -83,16 +89,19 @@ run = do
       then do
          args <- getArgs
          case args of
-            "run":command:cmdArgs -> runCommand (repr command) $ fmap repr cmdArgs
+            "run":command:cmdArgs -> runCommand (pack command) $ fmap pack cmdArgs
             _                    -> runSelf
       else do
          cmdArgs <- getArgs
-         runCommand (repr progName) $ fmap repr cmdArgs
+         runCommand (pack progName) $ fmap pack cmdArgs
 
 
 initializeCommand c cc = do
    forM_ (directories cc) $ hideDirectory (userId cc) (storageBase cc)
    ccs <- loadCommands
+   linkTarget <- linkCommandPath c
+   exists <- testfile linkTarget
+   when exists $ rm linkTarget -- We must remove it in order to find the real path.
    exe <- findExecutable $ unpack c
    if isNothing exe
       then eprintf ("command not found in path: "%s) c
@@ -122,6 +131,7 @@ restoreDir dir = do
          DsMissingDirectory -> Turtle.die $ format ("Missing directory: "%fp) absDirectory
    where
       restore absDirectory targetFile = do
+         mkdir absDirectory
          ex <- decrypt targetFile absDirectory
          case ex of
             ExitSuccess -> rm targetFile
@@ -144,23 +154,25 @@ runCommand command args = do
    let
       maybecc = HM.lookup command ccs
    case maybecc of
-      Nothing -> Turtle.die . repr $ format ("command '"%s%"'not found in configuration") command
+      Nothing -> Turtle.die $ format ("unhide: command '"%s%"' not found in configuration") command
       Just cc -> do
          x <- go cc (directories cc)
          when (x == ExitSuccess) $ linkCommand command
    where
-      go cc [] =
+      go cc [] = do
          case origPath cc of
             Nothing -> do
-               eprintf ("missing executable path for "%s) command
+               eprintf ("missing executable path for "%s%"\n") command
                pure $ ExitFailure 1
             Just path -> do
-               proc (repr path) args empty
+               proc (pack path) args empty
+
       go cc (dir:dirs) = do
          (_absDirectory, storageDir, targetFile) <- calcDirectories dir (storageBase cc)
+         mkdir storageDir
          x <- decrypt targetFile storageDir
          if x /= ExitSuccess then do
-            eprintf ("decrypt failed: "%fp) dir
+            eprintf ("decrypt failed: "%fp%"\n") dir
             rmtree storageDir
             pure x
          else do
@@ -170,7 +182,7 @@ runCommand command args = do
             case xx of
                ExitSuccess -> do
                   xxx <- encrypt storageDir targetFile (userId cc)
-                  unless (xxx == ExitSuccess) $ eprintf ("encrypt failed: "%fp) dir
-               ExitFailure r -> eprintf ("command failed: "%w) r
+                  unless (xxx == ExitSuccess) $ eprintf ("encrypt failed: "%fp%"\n") dir
+               ExitFailure r -> eprintf "command failed\n"
             rmtree storageDir
             pure xx
