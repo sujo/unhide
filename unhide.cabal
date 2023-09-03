@@ -1,0 +1,82 @@
+cabal-version:      2.4
+name:               unhide
+version:            0.1.0.0
+
+-- A short (one-line) description of the package.
+synopsis: Hides a directory in an encrypted file.
+
+-- A longer description of the package.
+description: Wraps a shell command, decrypts the directory dynamically before invoking that command, then encrypts and removes the directory again.
+Decrypted directories are stored in a tmpfs or ramfs location to avoid disk storage.
+
+-- A URL where users can report bugs.
+-- bug-reports:
+
+-- The license under which the package is released.
+-- license:
+author:             Jochen Suckfüll
+maintainer:         jochen@suckfuell.net
+
+-- A copyright notice.
+-- copyright:
+-- category:
+extra-source-files: CHANGELOG.md
+
+library
+    exposed-modules:  Unhide
+
+    -- Modules included in this library but not exported.
+    other-modules:
+       Config
+       Types
+       Directory
+       Helper
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:
+        base ^>=4.16.4.0
+      , aeson
+      , bytestring
+      , directory
+      , hashable
+      , relude
+      , text
+      , turtle
+      , unliftio
+      , unordered-containers
+      , yaml
+
+    default-extensions:
+      BangPatterns
+      DataKinds
+      DeriveGeneric
+      FlexibleContexts
+      FlexibleInstances
+      GADTs
+      LambdaCase
+      NoImplicitPrelude
+      OverloadedStrings
+      PolyKinds
+      RankNTypes
+      ScopedTypeVariables
+      TypeApplications
+      TypeFamilies
+      TypeSynonymInstances
+    hs-source-dirs:   src
+    default-language: Haskell2010
+
+executable unhide
+    main-is:          Main.hs
+
+    -- Modules included in this executable, other than Main.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:
+        base ^>=4.16.4.0
+      , unhide
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
